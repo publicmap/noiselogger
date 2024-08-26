@@ -1,0 +1,242 @@
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Noise Map</title>
+
+    <script src='https://api.mapbox.com/mapbox-gl-js/v3.6.0/mapbox-gl.js'></script>
+    <link href='https://api.mapbox.com/mapbox-gl-js/v3.6.0/mapbox-gl.css' rel='stylesheet' />
+    <style>
+        body { margin: 0; padding: 0; }
+        #map { position: absolute; top: 80px; bottom: 0; width: 100%; }
+        #info-panel {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 40px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            z-index: 1;
+        }
+        #control-panel {
+            position: absolute;
+            top: 40px;
+            left: 0;
+            right: 0;
+            height: 40px;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1;
+        }
+        #control-panel button {
+            margin: 0 5px;
+            padding: 5px 10px;
+        }
+    </style>
+    </head>
+    <body>
+        <div id="info-panel">
+            <span>Current: <span id="current-level">0</span> dB</span>
+            <span>10s Avg: <span id="avg-level">0</span> dB</span>
+            <span>Min: <span id="min-level">0</span> dB</span>
+            <span>Max: <span id="max-level">0</span> dB</span>
+        </div>
+        <div id="control-panel">
+            <button id="pauseBtn">Pause</button>
+            <button id="resumeBtn" disabled>Resume</button>
+            <button id="resetBtn">Reset</button>
+        </div>
+        <div id='map'></div>
+
+        <script>
+            // Function to calculate weighted average
+            function calculateWeightedAverage(readings) {
+                if (readings.length === 0) return 0;
+                let sum = 0;
+                let weightSum = 0;
+                for (let i = 0; i < readings.length; i++) {
+                    let weight = (i + 1) / readings.length; // More recent readings have higher weight
+                    sum += readings[i] * weight;
+                    weightSum += weight;
+                }
+                return sum / weightSum;
+            }
+
+            // Array to store sound level readings
+            let soundReadings = [];
+
+            let userLocation = [73.8, 15.6]; // Default location
+            let map;
+
+            document.addEventListener('DOMContentLoaded', () => {
+                mapboxgl.accessToken = 'pk.eyJ1IjoicGxhbmVtYWQiLCJhIjoiY2x2MzZwbGRyMGdheDJtbXVwdDA4aDNyaCJ9.nbvz6aNGQo68xa4NtWH26A';
+
+                map = new mapboxgl.Map({
+                    container: 'map',
+                    style: 'mapbox://styles/mapbox/dark-v10',
+                    center: userLocation,
+                    zoom: 9,
+                    hash: true
+                });
+
+                map.on('load', () => {
+                    // Get user's location
+                    if ("geolocation" in navigator) {
+                        navigator.geolocation.getCurrentPosition(position => {
+                            userLocation = [position.coords.longitude, position.coords.latitude];
+                            map.flyTo({ center: userLocation, zoom: 14 });
+                        }, error => {
+                            console.error('Error getting user location:', error);
+                        });
+                    } else {
+                        console.error('Geolocation is not supported by this browser');
+                    }
+
+                    map.addSource('noise', {
+                        'type': 'geojson',
+                        'data': {
+                            'type': 'FeatureCollection',
+                            'features': []
+                        }
+                    });
+
+                    map.addLayer({
+                        'id': 'noise-level',
+                        'type': 'circle',
+                        'source': 'noise',
+                        'paint': {
+                            'circle-radius': [
+                                'interpolate',
+                                ['linear'],
+                                ['get', 'db'],
+                                0, 5,
+                                100, 50
+                            ],
+                            'circle-color': [
+                                'interpolate',
+                                ['linear'],
+                                ['get', 'db'],
+                                0, '#00ff00',
+                                50, '#ffff00',
+                                100, '#ff0000'
+                            ],
+                            'circle-opacity': 0.8
+                        }
+                    });
+
+                    initializeAudio();
+                });
+            });
+
+            function initializeAudio() {
+                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                    navigator.mediaDevices.getUserMedia({ audio: true })
+                        .then(stream => {
+                            const audioContext = new AudioContext();
+                            const analyser = audioContext.createAnalyser();
+                            const microphone = audioContext.createMediaStreamSource(stream);
+                            microphone.connect(analyser);
+                            analyser.fftSize = 2048;
+                            const bufferLength = analyser.frequencyBinCount;
+                            const dataArray = new Float32Array(bufferLength);
+
+                            let isRecording = true;
+                            let lastUpdateTime = 0;
+                            let allReadings = [];
+
+                            function updateNoiseLevel(timestamp) {
+                                if (!isRecording) return;
+
+                                if (timestamp - lastUpdateTime >= 1000) { // Update every 1 second
+                                    analyser.getFloatTimeDomainData(dataArray);
+                                    let rms = 0;
+                                    for (let i = 0; i < bufferLength; i++) {
+                                        rms += dataArray[i] * dataArray[i];
+                                    }
+                                    rms = Math.sqrt(rms / bufferLength);
+                                    
+                                    let db = 20 * Math.log10(rms);
+                                    db = Math.max(30, Math.min(90, db + 90));
+                                    db = Math.round(db);
+
+                                    document.getElementById('current-level').textContent = db;
+
+                                    soundReadings.push(db);
+                                    allReadings.push(db);
+                                    if (soundReadings.length > 10) {
+                                        soundReadings.shift();
+                                    }
+                                    let weightedAvg = Math.round(calculateWeightedAverage(soundReadings));
+                                    document.getElementById('avg-level').textContent = weightedAvg;
+
+                                    let min = Math.min(...allReadings);
+                                    let max = Math.max(...allReadings);
+                                    document.getElementById('min-level').textContent = min;
+                                    document.getElementById('max-level').textContent = max;
+
+                                    if (map.loaded()) {
+                                        const noiseData = {
+                                            'type': 'FeatureCollection',
+                                            'features': [{
+                                                'type': 'Feature',
+                                                'geometry': {
+                                                    'type': 'Point',
+                                                    'coordinates': userLocation
+                                                },
+                                                'properties': {
+                                                    'db': db
+                                                }
+                                            }]
+                                        };
+
+                                        map.getSource('noise').setData(noiseData);
+                                    }
+
+                                    lastUpdateTime = timestamp;
+                                }
+
+                                requestAnimationFrame(updateNoiseLevel);
+                            }
+
+                            updateNoiseLevel(0);
+
+                            // Control buttons functionality
+                            document.getElementById('pauseBtn').addEventListener('click', () => {
+                                isRecording = false;
+                                document.getElementById('pauseBtn').disabled = true;
+                                document.getElementById('resumeBtn').disabled = false;
+                            });
+
+                            document.getElementById('resumeBtn').addEventListener('click', () => {
+                                isRecording = true;
+                                document.getElementById('pauseBtn').disabled = false;
+                                document.getElementById('resumeBtn').disabled = true;
+                                requestAnimationFrame(updateNoiseLevel);
+                            });
+
+                            document.getElementById('resetBtn').addEventListener('click', () => {
+                                soundReadings = [];
+                                allReadings = [];
+                                document.getElementById('current-level').textContent = '0';
+                                document.getElementById('avg-level').textContent = '0';
+                                document.getElementById('min-level').textContent = '0';
+                                document.getElementById('max-level').textContent = '0';
+                            });
+                        })
+                        .catch(error => console.error('Error accessing microphone:', error));
+                } else {
+                    console.error('getUserMedia is not supported in this browser');
+                }
+            }
+        </script>
+    </body>
+    </html>
