@@ -15,15 +15,17 @@
             top: 0;
             left: 0;
             right: 0;
-            height: 40px;
+            height: 80px;
             background-color: rgba(0, 0, 0, 0.7);
             color: white;
             display: flex;
-            justify-content: space-around;
+            flex-direction: column;
+            justify-content: space-between;
             align-items: center;
             font-family: Arial, sans-serif;
             font-size: 14px;
             z-index: 1;
+            padding: 5px 0;
         }
         #control-panel {
             position: absolute;
@@ -40,6 +42,42 @@
         #control-panel button {
             margin: 0 5px;
             padding: 5px 10px;
+        }
+        .mapboxgl-user-location-dot {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background-color: #007cbf;
+            box-shadow: 0 0 2px rgba(0,0,0,0.25);
+        }
+        .mapboxgl-user-location-dot::before {
+            content: '';
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            position: absolute;
+            background-color: #007cbf;
+            opacity: 0.1;
+            animation: pulse 2s infinite;
+        }
+        .mapboxgl-user-location-dot::after {
+            content: '';
+            display: block;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            border-top: 5px solid #fff;
+            border-right: 5px solid transparent;
+            border-left: 5px solid transparent;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        @keyframes pulse {
+            0% {transform: scale(1); opacity: 1;}
+            70% {transform: scale(3); opacity: 0;}
+            100% {transform: scale(1); opacity: 0;}
         }
     </style>
     </head>
