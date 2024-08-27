@@ -10,8 +10,14 @@
     <style>
         body { margin: 0; padding: 0; }
         #map { position: absolute; top: 80px; bottom: 0; width: 100%; }
-        #info-panel {
+        #map-overlay {
             position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+        }
+        #info-panel {
+            position: relative;
             top: 0;
             left: 0;
             right: 0;
@@ -28,8 +34,7 @@
             padding: 5px 0;
         }
         #control-panel {
-            position: absolute;
-            top: 40px;
+            position: relative;
             left: 0;
             right: 0;
             height: 40px;
@@ -79,9 +84,29 @@
             70% {transform: scale(3); opacity: 0;}
             100% {transform: scale(1); opacity: 0;}
         }
+        #sound-meter {
+            width: 300px;
+            height: 30px;
+            background-color: #333;
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-radius: 15px;
+            overflow: hidden;
+            display: flex;
+        }
+        .meter-bar {
+            flex: 1;
+            height: 100%;
+            margin: 0 1px;
+            background-color: #ddd;
+            transition: height 0.1s ease-out;
+        }
     </style>
     </head>
     <body>
+        <div id="map-overlay">
         <div id="info-panel">
             <span>Current: <span id="current-level">0</span> dB</span>
             <span>10s Avg: <span id="avg-level">0</span> dB</span>
@@ -93,7 +118,9 @@
             <button id="resumeBtn" disabled>Resume</button>
             <button id="resetBtn">Reset</button>
         </div>
+    </div>
         <div id='map'></div>
+        <div id="sound-meter"></div>
 
         <script>
             // Function to calculate weighted average
@@ -109,11 +136,44 @@
                 return sum / weightSum;
             }
 
+            // Create sound meter bars
+            const soundMeter = document.getElementById('sound-meter');
+            const numBars = 30;
+            for (let i = 0; i < numBars; i++) {
+                const bar = document.createElement('div');
+                bar.className = 'meter-bar';
+                soundMeter.appendChild(bar);
+            }
+
+            // Function to update the sound meter
+            function updateSoundMeter(db) {
+                const bars = document.querySelectorAll('.meter-bar');
+                const percentage = Math.min(100, Math.max(0, db));
+                const activeBars = Math.floor(percentage / 100 * numBars);
+
+                bars.forEach((bar, index) => {
+                    if (index < activeBars) {
+                        bar.style.height = '100%';
+                        if (index < numBars * 0.6) {
+                            bar.style.backgroundColor = '#4CAF50'; // Green
+                        } else if (index < numBars * 0.8) {
+                            bar.style.backgroundColor = '#FFC107'; // Yellow
+                        } else {
+                            bar.style.backgroundColor = '#F44336'; // Red
+                        }
+                    } else {
+                        bar.style.height = '10%';
+                        bar.style.backgroundColor = '#ddd';
+                    }
+                });
+            }
+
             // Array to store sound level readings
             let soundReadings = [];
 
             let userLocation = [73.8, 15.6]; // Default location
             let map;
+            let noiseHistory = []; // Array to store noise history
 
             document.addEventListener('DOMContentLoaded', () => {
                 mapboxgl.accessToken = 'pk.eyJ1IjoicGxhbmVtYWQiLCJhIjoiY2x2MzZwbGRyMGdheDJtbXVwdDA4aDNyaCJ9.nbvz6aNGQo68xa4NtWH26A';
@@ -189,12 +249,13 @@
 
                             let isRecording = true;
                             let lastUpdateTime = 0;
+                            let lastSnapshotTime = 0;
                             let allReadings = [];
 
                             function updateNoiseLevel(timestamp) {
                                 if (!isRecording) return;
 
-                                if (timestamp - lastUpdateTime >= 1000) { // Update every 1 second
+                                if (timestamp - lastUpdateTime >= 100) { // Update every 100ms for smoother meter
                                     analyser.getFloatTimeDomainData(dataArray);
                                     let rms = 0;
                                     for (let i = 0; i < bufferLength; i++) {
@@ -206,40 +267,75 @@
                                     db = Math.max(30, Math.min(90, db + 90));
                                     db = Math.round(db);
 
-                                    document.getElementById('current-level').textContent = db;
+                                    updateSoundMeter(db);
 
-                                    soundReadings.push(db);
-                                    allReadings.push(db);
-                                    if (soundReadings.length > 10) {
-                                        soundReadings.shift();
+                                    if (timestamp - lastUpdateTime >= 1000) { // Update stats every 1 second
+                                        document.getElementById('current-level').textContent = db;
+
+                                        soundReadings.push(db);
+                                        allReadings.push(db);
+                                        if (soundReadings.length > 10) {
+                                            soundReadings.shift();
+                                        }
+                                        let weightedAvg = Math.round(calculateWeightedAverage(soundReadings));
+                                        document.getElementById('avg-level').textContent = weightedAvg;
+
+                                        let min = Math.min(...allReadings);
+                                        let max = Math.max(...allReadings);
+                                        document.getElementById('min-level').textContent = min;
+                                        document.getElementById('max-level').textContent = max;
+
+                                        if (map.loaded()) {
+                                            const noiseData = {
+                                                'type': 'FeatureCollection',
+                                                'features': [{
+                                                    'type': 'Feature',
+                                                    'geometry': {
+                                                        'type': 'Point',
+                                                        'coordinates': userLocation
+                                                    },
+                                                    'properties': {
+                                                        'db': db
+                                                    }
+                                                }]
+                                            };
+
+                                            map.getSource('noise').setData(noiseData);
+                                        }
+
+                                        lastUpdateTime = timestamp;
                                     }
-                                    let weightedAvg = Math.round(calculateWeightedAverage(soundReadings));
-                                    document.getElementById('avg-level').textContent = weightedAvg;
 
-                                    let min = Math.min(...allReadings);
-                                    let max = Math.max(...allReadings);
-                                    document.getElementById('min-level').textContent = min;
-                                    document.getElementById('max-level').textContent = max;
+                                    // Save snapshot every 10 seconds
+                                    if (timestamp - lastSnapshotTime >= 10000) {
+                                        noiseHistory.push({
+                                            coordinates: [...userLocation],
+                                            db: db,
+                                            timestamp: Date.now()
+                                        });
 
-                                    if (map.loaded()) {
-                                        const noiseData = {
-                                            'type': 'FeatureCollection',
-                                            'features': [{
-                                                'type': 'Feature',
-                                                'geometry': {
-                                                    'type': 'Point',
-                                                    'coordinates': userLocation
-                                                },
-                                                'properties': {
-                                                    'db': db
-                                                }
-                                            }]
-                                        };
+                                        // Update the map with noise history
+                                        if (map.loaded()) {
+                                            const historyData = {
+                                                'type': 'FeatureCollection',
+                                                'features': noiseHistory.map(point => ({
+                                                    'type': 'Feature',
+                                                    'geometry': {
+                                                        'type': 'Point',
+                                                        'coordinates': point.coordinates
+                                                    },
+                                                    'properties': {
+                                                        'db': point.db,
+                                                        'timestamp': point.timestamp
+                                                    }
+                                                }))
+                                            };
 
-                                        map.getSource('noise').setData(noiseData);
+                                            map.getSource('noise').setData(historyData);
+                                        }
+
+                                        lastSnapshotTime = timestamp;
                                     }
-
-                                    lastUpdateTime = timestamp;
                                 }
 
                                 requestAnimationFrame(updateNoiseLevel);
@@ -264,10 +360,18 @@
                             document.getElementById('resetBtn').addEventListener('click', () => {
                                 soundReadings = [];
                                 allReadings = [];
+                                noiseHistory = [];
                                 document.getElementById('current-level').textContent = '0';
                                 document.getElementById('avg-level').textContent = '0';
                                 document.getElementById('min-level').textContent = '0';
                                 document.getElementById('max-level').textContent = '0';
+                                updateSoundMeter(0);
+                                if (map.loaded()) {
+                                    map.getSource('noise').setData({
+                                        'type': 'FeatureCollection',
+                                        'features': []
+                                    });
+                                }
                             });
                         })
                         .catch(error => console.error('Error accessing microphone:', error));
