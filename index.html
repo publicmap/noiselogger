@@ -1,21 +1,35 @@
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Noise Map</title>
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Noise Map</title>
 
     <script src='https://api.mapbox.com/mapbox-gl-js/v3.6.0/mapbox-gl.js'></script>
     <link href='https://api.mapbox.com/mapbox-gl-js/v3.6.0/mapbox-gl.css' rel='stylesheet' />
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
     <style>
-        body { margin: 0; padding: 0; }
-        #map { position: absolute; top: 80px; bottom: 0; width: 100%; }
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        #map {
+            position: absolute;
+            top: 80px;
+            bottom: 0;
+            width: 100%;
+        }
+
         #map-overlay {
             position: absolute;
             top: 0;
             left: 0;
             right: 0;
         }
+
         #info-panel {
             position: relative;
             top: 0;
@@ -33,6 +47,7 @@
             z-index: 1;
             padding: 5px 0;
         }
+
         #control-panel {
             position: relative;
             left: 0;
@@ -44,17 +59,20 @@
             align-items: center;
             z-index: 1;
         }
+
         #control-panel button {
             margin: 0 5px;
             padding: 5px 10px;
         }
+
         .mapboxgl-user-location-dot {
             width: 15px;
             height: 15px;
             border-radius: 50%;
             background-color: #007cbf;
-            box-shadow: 0 0 2px rgba(0,0,0,0.25);
+            box-shadow: 0 0 2px rgba(0, 0, 0, 0.25);
         }
+
         .mapboxgl-user-location-dot::before {
             content: '';
             width: 15px;
@@ -65,6 +83,7 @@
             opacity: 0.1;
             animation: pulse 2s infinite;
         }
+
         .mapboxgl-user-location-dot::after {
             content: '';
             display: block;
@@ -79,11 +98,24 @@
             left: 50%;
             transform: translate(-50%, -50%);
         }
+
         @keyframes pulse {
-            0% {transform: scale(1); opacity: 1;}
-            70% {transform: scale(3); opacity: 0;}
-            100% {transform: scale(1); opacity: 0;}
+            0% {
+                transform: scale(1);
+                opacity: 1;
+            }
+
+            70% {
+                transform: scale(3);
+                opacity: 0;
+            }
+
+            100% {
+                transform: scale(1);
+                opacity: 0;
+            }
         }
+
         #sound-meter {
             width: 300px;
             height: 30px;
@@ -96,6 +128,7 @@
             overflow: hidden;
             display: flex;
         }
+
         .meter-bar {
             flex: 1;
             height: 100%;
@@ -104,9 +137,10 @@
             transition: height 0.1s ease-out;
         }
     </style>
-    </head>
-    <body>
-        <div id="map-overlay">
+</head>
+
+<body>
+    <div id="map-overlay">
         <div id="info-panel">
             <span>Current: <span id="current-level">0</span> dB</span>
             <span>10s Avg: <span id="avg-level">0</span> dB</span>
@@ -119,272 +153,280 @@
             <button id="resetBtn">Reset</button>
         </div>
     </div>
-        <div id='map'></div>
-        <div id="sound-meter"></div>
+    <div id='map'></div>
+    <div id="sound-meter"></div>
 
-        <script>
-            // Function to calculate weighted average
-            function calculateWeightedAverage(readings) {
-                if (readings.length === 0) return 0;
-                let sum = 0;
-                let weightSum = 0;
-                for (let i = 0; i < readings.length; i++) {
-                    let weight = (i + 1) / readings.length; // More recent readings have higher weight
-                    sum += readings[i] * weight;
-                    weightSum += weight;
-                }
-                return sum / weightSum;
+    <script>
+        // Initialize Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyDdvg3bdmO8-UnWiVPlptrWPr3Af77IerM",
+            authDomain: "noiselogger-7a546.firebaseapp.com",
+            databaseURL: "https://noiselogger-7a546-default-rtdb.firebaseio.com",
+            projectId: "noiselogger-7a546",
+            storageBucket: "noiselogger-7a546.appspot.com",
+            messagingSenderId: "1088883369572",
+            appId: "1:1088883369572:web:4047fde03df55f864b2171",
+            measurementId: "G-VPDTDN640G"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+
+        // Generate a unique ID for this user
+        const userId = 'user_' + Math.random().toString(36).substr(2, 9);
+
+        // Function to calculate weighted average
+        function calculateWeightedAverage(readings) {
+            if (readings.length === 0) return 0;
+            let sum = 0;
+            let weightSum = 0;
+            for (let i = 0; i < readings.length; i++) {
+                let weight = (i + 1) / readings.length; // More recent readings have higher weight
+                sum += readings[i] * weight;
+                weightSum += weight;
             }
+            return sum / weightSum;
+        }
 
-            // Create sound meter bars
-            const soundMeter = document.getElementById('sound-meter');
-            const numBars = 30;
-            for (let i = 0; i < numBars; i++) {
-                const bar = document.createElement('div');
-                bar.className = 'meter-bar';
-                soundMeter.appendChild(bar);
-            }
+        // Create sound meter bars
+        const soundMeter = document.getElementById('sound-meter');
+        const numBars = 30;
+        for (let i = 0; i < numBars; i++) {
+            const bar = document.createElement('div');
+            bar.className = 'meter-bar';
+            soundMeter.appendChild(bar);
+        }
 
-            // Function to update the sound meter
-            function updateSoundMeter(db) {
-                const bars = document.querySelectorAll('.meter-bar');
-                const percentage = Math.min(100, Math.max(0, db));
-                const activeBars = Math.floor(percentage / 100 * numBars);
+        // Function to update the sound meter
+        function updateSoundMeter(db) {
+            const bars = document.querySelectorAll('.meter-bar');
+            const percentage = Math.min(100, Math.max(0, db));
+            const activeBars = Math.floor(percentage / 100 * numBars);
 
-                bars.forEach((bar, index) => {
-                    if (index < activeBars) {
-                        bar.style.height = '100%';
-                        if (index < numBars * 0.6) {
-                            bar.style.backgroundColor = '#4CAF50'; // Green
-                        } else if (index < numBars * 0.8) {
-                            bar.style.backgroundColor = '#FFC107'; // Yellow
-                        } else {
-                            bar.style.backgroundColor = '#F44336'; // Red
-                        }
+            bars.forEach((bar, index) => {
+                if (index < activeBars) {
+                    bar.style.height = '100%';
+                    if (index < numBars * 0.6) {
+                        bar.style.backgroundColor = '#4CAF50'; // Green
+                    } else if (index < numBars * 0.8) {
+                        bar.style.backgroundColor = '#FFC107'; // Yellow
                     } else {
-                        bar.style.height = '10%';
-                        bar.style.backgroundColor = '#ddd';
+                        bar.style.backgroundColor = '#F44336'; // Red
                     }
-                });
-            }
+                } else {
+                    bar.style.height = '10%';
+                    bar.style.backgroundColor = '#ddd';
+                }
+            });
+        }
 
-            // Array to store sound level readings
-            let soundReadings = [];
+        // Array to store sound level readings
+        let soundReadings = [];
 
-            let userLocation = [73.8, 15.6]; // Default location
-            let map;
-            let noiseHistory = []; // Array to store noise history
+        let userLocation = [73.8, 15.6]; // Default location
+        let map;
+        let noiseHistory = []; // Array to store noise history
 
-            document.addEventListener('DOMContentLoaded', () => {
-                mapboxgl.accessToken = 'pk.eyJ1IjoicGxhbmVtYWQiLCJhIjoiY2x2MzZwbGRyMGdheDJtbXVwdDA4aDNyaCJ9.nbvz6aNGQo68xa4NtWH26A';
+        document.addEventListener('DOMContentLoaded', () => {
+            mapboxgl.accessToken = 'pk.eyJ1IjoicGxhbmVtYWQiLCJhIjoiY2x2MzZwbGRyMGdheDJtbXVwdDA4aDNyaCJ9.nbvz6aNGQo68xa4NtWH26A';
 
-                map = new mapboxgl.Map({
-                    container: 'map',
-                    style: 'mapbox://styles/planemad/cm0c67r0100py01qybp7s2enn',
-                    center: userLocation,
-                    zoom: 9,
-                    hash: true
-                });
-
-                // Add geolocate control to the map
-                const geolocate = new mapboxgl.GeolocateControl({
-                    positionOptions: {
-                        enableHighAccuracy: true
-                    },
-                    trackUserLocation: true,
-                    showUserHeading: true
-                });
-                map.addControl(geolocate);
-
-                map.on('load', () => {
-                    // Trigger the geolocate control to start tracking the user's location
-                    geolocate.trigger();
-
-                    geolocate.on('geolocate', function(e) {
-                        userLocation = [e.coords.longitude, e.coords.latitude];
-                        map.flyTo({ center: userLocation, zoom: 14 });
-                    });
-
-                    map.addSource('noise', {
-                        'type': 'geojson',
-                        'data': {
-                            'type': 'FeatureCollection',
-                            'features': []
-                        }
-                    });
-
-                    map.addLayer({
-                        'id': 'noise-level',
-                        'type': 'circle',
-                        'source': 'noise',
-                        'paint': {
-                            'circle-radius': [
-                                'interpolate',
-                                ['linear'],
-                                ['get', 'db'],
-                                0, 5,
-                                100, 50
-                            ],
-                            'circle-color': [
-                                'interpolate',
-                                ['linear'],
-                                ['get', 'db'],
-                                0, '#00ff00',
-                                50, '#ffff00',
-                                100, '#ff0000'
-                            ],
-                            'circle-opacity': 0.8
-                        }
-                    });
-
-                    initializeAudio();
-                });
+            map = new mapboxgl.Map({
+                container: 'map',
+                style: 'mapbox://styles/planemad/cm0c67r0100py01qybp7s2enn',
+                center: userLocation,
+                zoom: 9,
+                hash: true
             });
 
-            function initializeAudio() {
-                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                    navigator.mediaDevices.getUserMedia({ audio: true })
-                        .then(stream => {
-                            const audioContext = new AudioContext();
-                            const analyser = audioContext.createAnalyser();
-                            const microphone = audioContext.createMediaStreamSource(stream);
-                            microphone.connect(analyser);
-                            analyser.fftSize = 2048;
-                            const bufferLength = analyser.frequencyBinCount;
-                            const dataArray = new Float32Array(bufferLength);
+            // Add geolocate control to the map
+            const geolocate = new mapboxgl.GeolocateControl({
+                positionOptions: {
+                    enableHighAccuracy: true
+                },
+                trackUserLocation: true,
+                showUserHeading: true
+            });
+            map.addControl(geolocate);
 
-                            let isRecording = true;
-                            let lastUpdateTime = 0;
-                            let lastSnapshotTime = 0;
-                            let allReadings = [];
+            map.on('load', () => {
+                // Trigger the geolocate control to start tracking the user's location
+                geolocate.trigger();
 
-                            function updateNoiseLevel(timestamp) {
-                                if (!isRecording) return;
+                geolocate.on('geolocate', function (e) {
+                    userLocation = [e.coords.longitude, e.coords.latitude];
+                    map.flyTo({ center: userLocation, zoom: 14 });
+                });
 
-                                if (timestamp - lastUpdateTime >= 100) { // Update every 100ms for smoother meter
-                                    analyser.getFloatTimeDomainData(dataArray);
-                                    let rms = 0;
-                                    for (let i = 0; i < bufferLength; i++) {
-                                        rms += dataArray[i] * dataArray[i];
+                map.addSource('noise', {
+                    'type': 'geojson',
+                    'data': {
+                        'type': 'FeatureCollection',
+                        'features': []
+                    }
+                });
+
+                map.addLayer({
+                    'id': 'noise-level',
+                    'type': 'circle',
+                    'source': 'noise',
+                    'paint': {
+                        'circle-radius': [
+                            'interpolate',
+                            ['linear'],
+                            ['get', 'db'],
+                            0, 5,
+                            100, 50
+                        ],
+                        'circle-color': [
+                            'interpolate',
+                            ['linear'],
+                            ['get', 'db'],
+                            0, '#00ff00',
+                            50, '#ffff00',
+                            100, '#ff0000'
+                        ],
+                        'circle-opacity': 0.8
+                    }
+                });
+
+                initializeAudio();
+            });
+        });
+
+        function initializeAudio() {
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({ audio: true })
+                    .then(stream => {
+                        const audioContext = new AudioContext();
+                        const analyser = audioContext.createAnalyser();
+                        const microphone = audioContext.createMediaStreamSource(stream);
+                        microphone.connect(analyser);
+                        analyser.fftSize = 2048;
+                        const bufferLength = analyser.frequencyBinCount;
+                        const dataArray = new Float32Array(bufferLength);
+
+                        let isRecording = true;
+                        let lastUpdateTime = 0;
+                        let lastSnapshotTime = 0;
+                        let allReadings = [];
+
+                        function updateNoiseLevel(timestamp) {
+                            if (!isRecording) return;
+
+                            if (timestamp - lastUpdateTime >= 100) { // Update every 100ms for smoother meter
+                                analyser.getFloatTimeDomainData(dataArray);
+                                let rms = 0;
+                                for (let i = 0; i < bufferLength; i++) {
+                                    rms += dataArray[i] * dataArray[i];
+                                }
+                                rms = Math.sqrt(rms / bufferLength);
+
+                                let db = 20 * Math.log10(rms);
+                                db = Math.max(30, Math.min(90, db + 90));
+                                db = Math.round(db);
+
+                                updateSoundMeter(db);
+
+                                if (timestamp - lastUpdateTime >= 1000) { // Update stats every 1 second
+                                    document.getElementById('current-level').textContent = db;
+
+                                    soundReadings.push(db);
+                                    allReadings.push(db);
+                                    if (soundReadings.length > 10) {
+                                        soundReadings.shift();
                                     }
-                                    rms = Math.sqrt(rms / bufferLength);
-                                    
-                                    let db = 20 * Math.log10(rms);
-                                    db = Math.max(30, Math.min(90, db + 90));
-                                    db = Math.round(db);
+                                    let weightedAvg = Math.round(calculateWeightedAverage(soundReadings));
+                                    document.getElementById('avg-level').textContent = weightedAvg;
 
-                                    updateSoundMeter(db);
+                                    let min = Math.min(...allReadings);
+                                    let max = Math.max(...allReadings);
+                                    document.getElementById('min-level').textContent = min;
+                                    document.getElementById('max-level').textContent = max;
 
-                                    if (timestamp - lastUpdateTime >= 1000) { // Update stats every 1 second
-                                        document.getElementById('current-level').textContent = db;
+                                    // Update Firebase with the user's current noise level and location
+                                    database.ref('users/' + userId).set({
+                                        location: userLocation,
+                                        db: db,
+                                        timestamp: firebase.database.ServerValue.TIMESTAMP
+                                    });
 
-                                        soundReadings.push(db);
-                                        allReadings.push(db);
-                                        if (soundReadings.length > 10) {
-                                            soundReadings.shift();
-                                        }
-                                        let weightedAvg = Math.round(calculateWeightedAverage(soundReadings));
-                                        document.getElementById('avg-level').textContent = weightedAvg;
-
-                                        let min = Math.min(...allReadings);
-                                        let max = Math.max(...allReadings);
-                                        document.getElementById('min-level').textContent = min;
-                                        document.getElementById('max-level').textContent = max;
-
-                                        if (map.loaded()) {
-                                            const noiseData = {
-                                                'type': 'FeatureCollection',
-                                                'features': [{
-                                                    'type': 'Feature',
-                                                    'geometry': {
-                                                        'type': 'Point',
-                                                        'coordinates': userLocation
-                                                    },
-                                                    'properties': {
-                                                        'db': db
-                                                    }
-                                                }]
-                                            };
-
-                                            map.getSource('noise').setData(noiseData);
-                                        }
-
-                                        lastUpdateTime = timestamp;
-                                    }
-
-                                    // Save snapshot every 10 seconds
-                                    if (timestamp - lastSnapshotTime >= 10000) {
-                                        noiseHistory.push({
-                                            coordinates: [...userLocation],
-                                            db: db,
-                                            timestamp: Date.now()
-                                        });
-
-                                        // Update the map with noise history
-                                        if (map.loaded()) {
-                                            const historyData = {
-                                                'type': 'FeatureCollection',
-                                                'features': noiseHistory.map(point => ({
-                                                    'type': 'Feature',
-                                                    'geometry': {
-                                                        'type': 'Point',
-                                                        'coordinates': point.coordinates
-                                                    },
-                                                    'properties': {
-                                                        'db': point.db,
-                                                        'timestamp': point.timestamp
-                                                    }
-                                                }))
-                                            };
-
-                                            map.getSource('noise').setData(historyData);
-                                        }
-
-                                        lastSnapshotTime = timestamp;
-                                    }
+                                    lastUpdateTime = timestamp;
                                 }
 
-                                requestAnimationFrame(updateNoiseLevel);
+                                // Save snapshot every 10 seconds
+                                if (timestamp - lastSnapshotTime >= 10000) {
+                                    noiseHistory.push({
+                                        coordinates: [...userLocation],
+                                        db: db,
+                                        timestamp: Date.now()
+                                    });
+
+                                    lastSnapshotTime = timestamp;
+                                }
                             }
 
-                            updateNoiseLevel(0);
+                            requestAnimationFrame(updateNoiseLevel);
+                        }
 
-                            // Control buttons functionality
-                            document.getElementById('pauseBtn').addEventListener('click', () => {
-                                isRecording = false;
-                                document.getElementById('pauseBtn').disabled = true;
-                                document.getElementById('resumeBtn').disabled = false;
-                            });
+                        updateNoiseLevel(0);
 
-                            document.getElementById('resumeBtn').addEventListener('click', () => {
-                                isRecording = true;
-                                document.getElementById('pauseBtn').disabled = false;
-                                document.getElementById('resumeBtn').disabled = true;
-                                requestAnimationFrame(updateNoiseLevel);
-                            });
+                        // Listen for changes in the Firebase database
+                        database.ref('users').on('value', (snapshot) => {
+                            const users = snapshot.val();
+                            const features = [];
+                            for (let userId in users) {
+                                const user = users[userId];
+                                features.push({
+                                    'type': 'Feature',
+                                    'geometry': {
+                                        'type': 'Point',
+                                        'coordinates': user.location
+                                    },
+                                    'properties': {
+                                        'db': user.db
+                                    }
+                                });
+                            }
+                            if (map.loaded()) {
+                                map.getSource('noise').setData({
+                                    'type': 'FeatureCollection',
+                                    'features': features
+                                });
+                            }
+                        });
 
-                            document.getElementById('resetBtn').addEventListener('click', () => {
-                                soundReadings = [];
-                                allReadings = [];
-                                noiseHistory = [];
-                                document.getElementById('current-level').textContent = '0';
-                                document.getElementById('avg-level').textContent = '0';
-                                document.getElementById('min-level').textContent = '0';
-                                document.getElementById('max-level').textContent = '0';
-                                updateSoundMeter(0);
-                                if (map.loaded()) {
-                                    map.getSource('noise').setData({
-                                        'type': 'FeatureCollection',
-                                        'features': []
-                                    });
-                                }
-                            });
-                        })
-                        .catch(error => console.error('Error accessing microphone:', error));
-                } else {
-                    console.error('getUserMedia is not supported in this browser');
-                }
+                        // Control buttons functionality
+                        document.getElementById('pauseBtn').addEventListener('click', () => {
+                            isRecording = false;
+                            document.getElementById('pauseBtn').disabled = true;
+                            document.getElementById('resumeBtn').disabled = false;
+                        });
+
+                        document.getElementById('resumeBtn').addEventListener('click', () => {
+                            isRecording = true;
+                            document.getElementById('pauseBtn').disabled = false;
+                            document.getElementById('resumeBtn').disabled = true;
+                            requestAnimationFrame(updateNoiseLevel);
+                        });
+
+                        document.getElementById('resetBtn').addEventListener('click', () => {
+                            soundReadings = [];
+                            allReadings = [];
+                            noiseHistory = [];
+                            document.getElementById('current-level').textContent = '0';
+                            document.getElementById('avg-level').textContent = '0';
+                            document.getElementById('min-level').textContent = '0';
+                            document.getElementById('max-level').textContent = '0';
+                            updateSoundMeter(0);
+                            // Remove user data from Firebase
+                            database.ref('users/' + userId).remove();
+                        });
+                    })
+                    .catch(error => console.error('Error accessing microphone:', error));
+            } else {
+                console.error('getUserMedia is not supported in this browser');
             }
-        </script>
-    </body>
-    </html>
+        }
+    </script>
+</body>
+
+</html>
