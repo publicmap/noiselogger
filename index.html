@@ -186,18 +186,24 @@
                     hash: true
                 });
 
+                // Add geolocate control to the map
+                const geolocate = new mapboxgl.GeolocateControl({
+                    positionOptions: {
+                        enableHighAccuracy: true
+                    },
+                    trackUserLocation: true,
+                    showUserHeading: true
+                });
+                map.addControl(geolocate);
+
                 map.on('load', () => {
-                    // Get user's location
-                    if ("geolocation" in navigator) {
-                        navigator.geolocation.getCurrentPosition(position => {
-                            userLocation = [position.coords.longitude, position.coords.latitude];
-                            map.flyTo({ center: userLocation, zoom: 14 });
-                        }, error => {
-                            console.error('Error getting user location:', error);
-                        });
-                    } else {
-                        console.error('Geolocation is not supported by this browser');
-                    }
+                    // Trigger the geolocate control to start tracking the user's location
+                    geolocate.trigger();
+
+                    geolocate.on('geolocate', function(e) {
+                        userLocation = [e.coords.longitude, e.coords.latitude];
+                        map.flyTo({ center: userLocation, zoom: 14 });
+                    });
 
                     map.addSource('noise', {
                         'type': 'geojson',
